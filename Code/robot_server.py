@@ -1,68 +1,109 @@
 import cv2
 import socket
 import threading
-import smbus
 import time
 from flask import Flask, Response
 
-# --- CONFIGURACIÓN I2C MD22 ---
-# Dirección I2C (0xB0 >> 1 = 0x58 para Raspberry Pi)
+# Variable para saber qué driver estamos usando
+ACTIVE_DRIVER = None 
+# Objetos para el L298N (se iniciarán solo si falla el I2C)
+l298n_left = None
+l298n_right = None
+bus = None
+
+# --- INTENTO DE CONFIGURACIÓN I2C MD22 ---
 MD22_ADDR = 0x58
 BUS_NUM = 1
-bus = smbus.SMBus(BUS_NUM)
-
-# Registros MD22
 REG_MODE = 0
-REG_SPEED_L = 1 # Speed1
-REG_SPEED_R = 2 # Speed2 (o Turn dependiendo del modo)
+REG_SPEED_L = 1 
+REG_SPEED_R = 2 
 REG_ACCEL = 3
 
-# Configurar MD22 en MODO 1 (Control independiente, -128 a 127)
-# Esto nos da control total sobre cada oruga/rueda.
+print("--- INICIALIZANDO HARDWARE ---")
+
 try:
+    import smbus
+    bus = smbus.SMBus(BUS_NUM)
+    # Intentamos escribir en el MD22 para ver si responde
     bus.write_byte_data(MD22_ADDR, REG_MODE, 1)
-    bus.write_byte_data(MD22_ADDR, REG_ACCEL, 0) # Aceleración máxima
+    bus.write_byte_data(MD22_ADDR, REG_ACCEL, 0)
+    
+    ACTIVE_DRIVER = "MD22"
+    print("✅ ÉXITO: Driver MD22 (I2C) detectado y activo.")
+
 except Exception as e:
-    print(f"Error inicializando MD22 (¿Está conectado?): {e}")
+    print(f"⚠️ AVISO: Fallo I2C o MD22 no encontrado ({e}).")
+    print("🔄 CAMBIANDO A MODO DE RESPALDO: L298N (GPIO)")
+    
+    try:
+        from gpiozero import Motor
+        # CONFIGURACIÓN DE PINES L298N (GPIO BCM)
+        # Ajusta estos pines según tu conexión física
+        # IN1=17, IN2=27 (Motor A - Izquierda)
+        # IN3=22, IN4=23 (Motor B - Derecha)
+        l298n_left = Motor(forward=17, backward=27)
+        l298n_right = Motor(forward=22, backward=23)
+        
+        ACTIVE_DRIVER = "L298N"
+        print("✅ ÉXITO: Driver L298N inicializado en pines GPIO 17,27 y 22,23.")
+    except Exception as gpio_e:
+        print(f"❌ ERROR CRÍTICO: No se pudo iniciar ni MD22 ni L298N. {gpio_e}")
+        ACTIVE_DRIVER = "NONE"
 
 # --- CONFIGURACIÓN DE RED (UDP) ---
-UDP_IP = "0.0.0.0" # Escuchar en todas las interfaces
+UDP_IP = "0.0.0.0" 
 UDP_PORT = 5005
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
 
-# Variable de seguridad para detener el coche si se pierde la conexión
 last_packet_time = time.time()
 
 # --- FLASK (VIDEO) ---
 app = Flask(__name__)
-camera = cv2.VideoCapture(0, cv2.CAP_V4L2) # 0 suele ser la primera webcam USB
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320) # Baja resolución para menos lag
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+# Intentar abrir cámara, manejando error si no hay cámara
+try:
+    camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+except:
+    print("⚠️ No se detectó cámara USB")
+    camera = None
 
 def set_motors(left, right):
-    """ Mueve los motores. Valores de -128 a 127 """
-    try:
-        # Asegurar límites
-        left = int(max(-128, min(127, left)))
-        right = int(max(-128, min(127, right)))
+    """ 
+    Mueve los motores abstrayendo el hardware.
+    Entrada esperada: -128 a 127 
+    """
+    # 1. Asegurar límites numéricos generales
+    left = int(max(-128, min(127, left)))
+    right = int(max(-128, min(127, right)))
+
+    if ACTIVE_DRIVER == "MD22":
+        try:
+            bus.write_byte_data(MD22_ADDR, REG_SPEED_L, left)
+            bus.write_byte_data(MD22_ADDR, REG_SPEED_R, right)
+        except IOError:
+            print("Error I2C durante operación (¿Cable suelto?)")
+
+    elif ACTIVE_DRIVER == "L298N":
+        # Conversión: MD22 usa -128/127, L298N(gpiozero) usa -1.0/1.0
+        # Dividimos por 128.0 para normalizar
+        val_l = left / 128.0
+        val_r = right / 128.0
         
-        bus.write_byte_data(MD22_ADDR, REG_SPEED_L, left)
-        bus.write_byte_data(MD22_ADDR, REG_SPEED_R, right)
-    except IOError:
-        pass # Ignorar errores puntuales de I2C
+        # Asignar valor (gpiozero maneja la dirección automáticamente según el signo)
+        l298n_left.value = val_l
+        l298n_right.value = val_r
 
 def udp_listener():
-    """ Hilo que escucha comandos del mando """
     global last_packet_time
-    print(f"Escuchando controles en el puerto UDP {UDP_PORT}...")
+    print(f"Escuchando controles UDP en puerto {UDP_PORT}...")
     
     while True:
         try:
             data, addr = sock.recvfrom(1024)
             message = data.decode('utf-8')
             
-            # Formato esperado: "izq,der" (ej: "100,-100")
             if "," in message:
                 parts = message.split(',')
                 l_speed = int(parts[0])
@@ -75,53 +116,48 @@ def udp_listener():
             print(f"Error UDP: {e}")
 
 def safety_watchdog():
-    """ Si no recibimos datos en 0.5 segundos, paramos los motores (Safety) """
+    """ Parada de emergencia si se pierde señal """
     while True:
         if time.time() - last_packet_time > 0.5:
+            # Enviamos 0 para detener, funciona en ambos drivers
             set_motors(0, 0)
         time.sleep(0.1)
 
 def generate_frames():
-    # --- CONFIGURACIÓN DE AHORRO ---
-    FPS_LIMITE = 30           # Enviar solo 10 fotos por segundo
-    CALIDAD_JPEG = 100        # Calidad 25% (baja mucho el peso, se ve "pixelado" pero fluido)
-    ANCHO_FORZADO = 1280       # Resolución muy pequeña
+    if camera is None:
+        return # Si no hay cámara, no hacemos nada
+
+    FPS_LIMITE = 30
+    CALIDAD_JPEG = 100
+    ANCHO_FORZADO = 1280
     ALTO_FORZADO = 720
-    # -------------------------------
 
     while True:
-        success, frame = camera.read()
-        if not success:
-            break
-        
-        # 1. Reducir tamaño de la imagen a la fuerza
         try:
+            success, frame = camera.read()
+            if not success:
+                break
+            
+            # Redimensionar (dentro de try por si frame viene vacío)
             frame = cv2.resize(frame, (ANCHO_FORZADO, ALTO_FORZADO))
-        except:
-            pass
+            
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), CALIDAD_JPEG]
+            ret, buffer = cv2.imencode('.jpg', frame, encode_param)
+            frame_bytes = buffer.tobytes()
 
-        # 2. Convertir a Blanco y Negro (Opcional: Descomenta la linea de abajo para ahorrar aun mas)
-        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            time.sleep(1 / FPS_LIMITE)
+        except Exception as e:
+            time.sleep(0.1)
 
-        # 3. Compresión agresiva JPEG
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), CALIDAD_JPEG]
-        ret, buffer = cv2.imencode('.jpg', frame, encode_param)
-        
-        frame_bytes = buffer.tobytes()
-
-        # 4. Enviar
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        
-        # 5. Esperar un poco para no saturar (Limitador de FPS)
-        # Si queremos 10 FPS, esperamos 0.1 segundos entre envío y envío
-        time.sleep(1 / FPS_LIMITE)
 @app.route('/')
 def index():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    # Iniciar hilos de control en segundo plano
+    # Hilos
     t_udp = threading.Thread(target=udp_listener)
     t_udp.daemon = True
     t_udp.start()
@@ -130,6 +166,5 @@ if __name__ == '__main__':
     t_safe.daemon = True
     t_safe.start()
 
-    # Iniciar servidor web (Video)
-    # host='0.0.0.0' hace que sea accesible desde la red
+    # Servidor Web
     app.run(host='0.0.0.0', port=8090, debug=False, threaded=True)
