@@ -92,9 +92,11 @@ def set_motors(left, right):
         val_r = right / 128.0
         
         # Asignar valor (gpiozero maneja la dirección automáticamente según el signo)
-        l298n_left.value = val_l
-        l298n_right.value = val_r
-
+        if 0 < abs(val_l) < 0.4:
+            val_l = 0.4 if val_l > 0 else -0.4
+        
+        if 0 < abs(val_r) < 0.4:
+            val_r = 0.4 if val_r > 0 else -0.4
 def udp_listener():
     global last_packet_time
     print(f"Escuchando controles UDP en puerto {UDP_PORT}...")
