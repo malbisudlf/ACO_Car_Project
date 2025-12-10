@@ -83,10 +83,10 @@ def safety_watchdog():
 
 def generate_frames():
     # --- CONFIGURACIÓN DE AHORRO ---
-    FPS_LIMITE = 1           # Enviar solo 10 fotos por segundo
-    CALIDAD_JPEG = 10        # Calidad 25% (baja mucho el peso, se ve "pixelado" pero fluido)
-    ANCHO_FORZADO = 160       # Resolución muy pequeña
-    ALTO_FORZADO = 120
+    FPS_LIMITE = 30           # Enviar solo 10 fotos por segundo
+    CALIDAD_JPEG = 100        # Calidad 25% (baja mucho el peso, se ve "pixelado" pero fluido)
+    ANCHO_FORZADO = 1280       # Resolución muy pequeña
+    ALTO_FORZADO = 720
     # -------------------------------
 
     while True:
