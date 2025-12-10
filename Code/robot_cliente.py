@@ -27,7 +27,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 print("Controles:")
 print(" - Eje Y (Joystick Izquierdo): Acelerar/Frenar")
-print(" - Eje X (Joystick Derecho): Girar")
+print(" - Eje X (Joystick Izquierdo): Girar")
 print(" - Botón 'B' o 'Círculo': Salir")
 
 running = True
@@ -46,11 +46,9 @@ try:
                     running = False
 
         # 2. Leer Joystick (Valores suelen ser -1.0 a 1.0)
-        # Nota: Los ejes pueden variar según el mando. 
-        # Normalmente eje 1 es Y (invertido) y eje 2 o 3 es X.
         
-        throttle = -joystick.get_axis(1) # Invertimos Y porque arriba suele ser negativo
-        steering = joystick.get_axis(2)  # Eje X derecho (o 0 para el izquierdo)
+        throttle = -joystick.get_axis(2)
+        steering = joystick.get_axis(3)
 
         # Zona muerta (para que no se mueva solo)
         if abs(throttle) < 0.1: throttle = 0
