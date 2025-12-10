@@ -98,12 +98,23 @@ def play_jingle():
     print("🎄 Reproduciendo Villancico...")
     
     # Notas: (Nota, Duración)
-    # Melodía simplificada de "We Wish You a Merry Christmas"
     melody = [
-        ('D4', 0.4), ('G4', 0.4), ('G4', 0.2), ('A4', 0.2), ('G4', 0.2), ('F#4', 0.2), ('E4', 0.4), ('E4', 0.4),
-        ('E4', 0.4), ('A4', 0.4), ('A4', 0.2), ('B4', 0.2), ('A4', 0.2), ('G4', 0.2), ('F#4', 0.4), ('D4', 0.4),
-        ('D4', 0.4), ('B4', 0.4), ('B4', 0.2), ('C5', 0.2), ('B4', 0.2), ('A4', 0.2), ('G4', 0.4), ('E4', 0.4),
-        ('D4', 0.2), ('D4', 0.2), ('E4', 0.4), ('A4', 0.4), ('F#4', 0.4), ('G4', 0.8)
+        # --- Feliz Navidad (1) ---
+        ('G4', 0.2), # (Pickup)
+        ('C5', 0.4), ('B4', 0.2), ('C5', 0.2), ('A4', 0.8), # Fe-liz Na-vi-dad
+        
+        # --- Feliz Navidad (2) ---
+        ('G4', 0.2), # (Pickup)
+        ('D5', 0.4), ('C#5', 0.2), ('D5', 0.2), ('B4', 0.8), # Fe-liz Na-vi-dad
+        
+        # --- Feliz Navidad (3) ---
+        ('G4', 0.2), # (Pickup)
+        ('E5', 0.4), ('D5', 0.2), ('C5', 0.2), ('B4', 0.4), ('A4', 0.4), # Fe-liz Na-vi-dad
+        
+        # --- Próspero año y felicidad ---
+        ('F5', 0.2), ('F5', 0.2), # Prós-pe
+        ('E5', 0.2), ('E5', 0.2), # ro-a
+        ('D5', 0.2), ('G4', 0.2), ('C5', 0.8), # ño-y-fe-li-ci-dad
     ]
 
     try:
@@ -158,7 +169,6 @@ def index():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    play_jingle()
     threading.Thread(target=udp_listener, daemon=True).start()
     threading.Thread(target=safety_watchdog, daemon=True).start()
     app.run(host='0.0.0.0', port=8090, debug=False, threaded=True)
