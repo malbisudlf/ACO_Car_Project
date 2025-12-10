@@ -37,20 +37,20 @@ try:
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.JOYBUTTONDOWN:
-                if event.button == 1: 
+                if event.button == 1:
                     running = False
+
+                if event.button == 0:
+                    print("🎵 Enviando comando Navidad...")
+                    sock.sendto("NAVIDAD".encode('utf-8'), (PI_IP, UDP_PORT))
 
         # --- CORRECCIÓN DE EJES ---
         # He intercambiado el 2 y el 3 basándome en tu problema.
         # Si tu mando es estándar (Xbox/PS4), a veces los ejes son 0 (izq/der) y 1 (arriba/abajo).
         # Prueba esta configuración primero:
         
-        # EJE Y (Acelerador): Antes tenías axis(2), ahora pongo axis(3) o 1
-        # El signo '-' invierte (porque arriba suele ser negativo en informática)
-        raw_throttle = -joystick.get_axis(3)  # <--- CAMBIADO DE 2 A 3
-        
-        # EJE X (Giro): Antes tenías axis(3), ahora pongo axis(2) o 0
-        raw_steering = -joystick.get_axis(2)   # <--- CAMBIADO DE 3 A 2
+        raw_throttle = -joystick.get_axis(3)
+        raw_steering = -joystick.get_axis(2)
 
         # Zona muerta
         throttle = 0 if abs(raw_throttle) < 0.1 else raw_throttle

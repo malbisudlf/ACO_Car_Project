@@ -3,6 +3,17 @@ import socket
 import threading
 import time
 from flask import Flask, Response
+from gpiozero import TonalBuzzer
+from gpiozero.tones import Tone
+
+# --- CONFIG BUZZER ---
+try:
+    buzzer = TonalBuzzer(25)
+except Exception as e:
+    print(f"⚠️ No se pudo iniciar el buzzer: {e}")
+    buzzer = None
+
+is_playing = False
 
 # Variable de estado del driver
 ACTIVE_DRIVER = None 
@@ -79,18 +90,50 @@ def set_motors(left, right):
         l298n_left.value = val_l
         l298n_right.value = val_r
 
+def play_jingle():
+    global is_playing
+    if is_playing or not buzzer: return # Si ya suena o no hay buzzer, salir
+    
+    is_playing = True
+    print("🎄 Reproduciendo Villancico...")
+    
+    # Notas: (Nota, Duración)
+    # Melodía simplificada de "We Wish You a Merry Christmas"
+    melody = [
+        ('D4', 0.4), ('G4', 0.4), ('G4', 0.2), ('A4', 0.2), ('G4', 0.2), ('F#4', 0.2), ('E4', 0.4), ('E4', 0.4),
+        ('E4', 0.4), ('A4', 0.4), ('A4', 0.2), ('B4', 0.2), ('A4', 0.2), ('G4', 0.2), ('F#4', 0.4), ('D4', 0.4),
+        ('D4', 0.4), ('B4', 0.4), ('B4', 0.2), ('C5', 0.2), ('B4', 0.2), ('A4', 0.2), ('G4', 0.4), ('E4', 0.4),
+        ('D4', 0.2), ('D4', 0.2), ('E4', 0.4), ('A4', 0.4), ('F#4', 0.4), ('G4', 0.8)
+    ]
+
+    try:
+        for note, duration in melody:
+            buzzer.play(Tone(note))
+            time.sleep(duration)
+        buzzer.stop()
+    except:
+        pass
+    
+    is_playing = False
+
 def udp_listener():
     global last_packet_time
     while True:
         try:
             data, _ = sock.recvfrom(1024)
             msg = data.decode('utf-8')
-            if "," in msg:
+            
+            # COMANDO DE MÚSICA
+            if msg == "NAVIDAD":
+                threading.Thread(target=play_jingle, daemon=True).start()
+                last_packet_time = time.time() # Mantener vivo el robot
+            
+            # COMANDO DE MOTORES (Mantiene tu lógica original)
+            elif "," in msg:
                 l, r = map(int, msg.split(','))
                 set_motors(l, r)
                 last_packet_time = time.time()
         except: pass
-
 def safety_watchdog():
     while True:
         if time.time() - last_packet_time > 0.5:
@@ -115,6 +158,7 @@ def index():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
+    play_jingle()
     threading.Thread(target=udp_listener, daemon=True).start()
     threading.Thread(target=safety_watchdog, daemon=True).start()
     app.run(host='0.0.0.0', port=8090, debug=False, threaded=True)
