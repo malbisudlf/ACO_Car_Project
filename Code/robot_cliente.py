@@ -3,14 +3,13 @@ import socket
 import time
 import cv2
 import numpy as np
-import urllib.request
 
 # --- CONFIGURACIÓN ---
-PI_IP = "172.20.10.208"  # <--- ¡PON AQUÍ LA IP DE TU RASPBERRY PI!
+PI_IP = "10.235.21.46"  # <--- TU IP
 UDP_PORT = 5005
 VIDEO_URL = f"http://{PI_IP}:8090/"
 
-# Inicializar Pygame y Joystick
+# Inicializar Pygame
 pygame.init()
 pygame.joystick.init()
 
@@ -25,67 +24,67 @@ print(f"Mando detectado: {joystick.get_name()}")
 # Configurar Socket UDP
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-print("Controles:")
-print(" - Eje Y (Joystick Izquierdo): Acelerar/Frenar")
-print(" - Eje X (Joystick Izquierdo): Girar")
-print(" - Botón 'B' o 'Círculo': Salir")
+print("--- CONTROLES ---")
+print("Si el coche hace cosas raras, ajusta los ejes en el código.")
 
-running = True
-
-# Ventana para el video (usando OpenCV en el cliente para mostrarlo)
+# Ventana Video
 cap = cv2.VideoCapture(VIDEO_URL)
+running = True
 
 try:
     while running:
-        # 1. Procesar eventos de Pygame
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.JOYBUTTONDOWN:
-                if event.button == 1: # Botón B/Círculo suele ser 1
+                if event.button == 1: 
                     running = False
 
-        # 2. Leer Joystick (Valores suelen ser -1.0 a 1.0)
+        # --- CORRECCIÓN DE EJES ---
+        # He intercambiado el 2 y el 3 basándome en tu problema.
+        # Si tu mando es estándar (Xbox/PS4), a veces los ejes son 0 (izq/der) y 1 (arriba/abajo).
+        # Prueba esta configuración primero:
         
-        throttle = -joystick.get_axis(2)
-        steering = joystick.get_axis(3)
+        # EJE Y (Acelerador): Antes tenías axis(2), ahora pongo axis(3) o 1
+        # El signo '-' invierte (porque arriba suele ser negativo en informática)
+        raw_throttle = -joystick.get_axis(3)  # <--- CAMBIADO DE 2 A 3
+        
+        # EJE X (Giro): Antes tenías axis(3), ahora pongo axis(2) o 0
+        raw_steering = -joystick.get_axis(2)   # <--- CAMBIADO DE 3 A 2
 
-        # Zona muerta (para que no se mueva solo)
-        if abs(throttle) < 0.1: throttle = 0
-        if abs(steering) < 0.1: steering = 0
+        # Zona muerta
+        throttle = 0 if abs(raw_throttle) < 0.1 else raw_throttle
+        steering = 0 if abs(raw_steering) < 0.1 else raw_steering
 
-        # 3. Mezcla "Arcade" (Calcular motor Izq y Der)
-        # Velocidad máxima 127 (límite del MD22 Modo 1)
+        # --- MEZCLA ARCADE ---
         max_speed = 127
         
+        # Fórmula estándar de mezcla
         left_motor = (throttle + steering) * max_speed
         right_motor = (throttle - steering) * max_speed
 
-        # Limitar valores a -127 / 127
-        left_motor = max(-127, min(127, left_motor))
-        right_motor = max(-127, min(127, right_motor))
+        # Limitar y convertir a entero
+        left_motor = int(max(-127, min(127, left_motor)))
+        right_motor = int(max(-127, min(127, right_motor)))
 
-        # 4. Enviar a Raspberry Pi vía UDP
-        msg = f"{int(left_motor)},{int(right_motor)}"
+        # Enviar
+        msg = f"{left_motor},{right_motor}"
         sock.sendto(msg.encode('utf-8'), (PI_IP, UDP_PORT))
 
-        # 5. Mostrar Video
+        # Video
         ret, frame = cap.read()
         if ret:
-            cv2.imshow("Vista del Coche (Q para salir)", frame)
+            cv2.imshow("Coche Robot", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 running = False
         
-        # Pequeña pausa para no saturar la red (20ms = 50 comandos/segundo)
         time.sleep(0.02)
 
 except KeyboardInterrupt:
     pass
 
 finally:
-    # Parar motores al salir
     sock.sendto("0,0".encode('utf-8'), (PI_IP, UDP_PORT))
     cap.release()
     cv2.destroyAllWindows()
     pygame.quit()
-    print("Desconectado.")
