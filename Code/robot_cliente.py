@@ -2,7 +2,6 @@ import pygame
 import socket
 import time
 import cv2
-import numpy as np
 
 # --- CONFIGURACIÓN ---
 PI_IP = "10.235.21.46"  # <--- TU IP
